@@ -1,8 +1,8 @@
 use crate::sandbox::{aurora::Aurora, fungible_token::FungibleToken, Sandbox};
 use aurora_engine_types::types::Address;
 use aurora_forwarder_factory::{DeployParameters, INIT_BALANCE, MAX_NUM_CONTRACTS};
-use near_workspaces::types::{AccessKeyPermission, NearToken, PublicKey};
-use near_workspaces::AccountId;
+use near_workspaces::types::{AccessKeyPermission, NearToken, PublicKey, SecretKey};
+use near_workspaces::{AccountId, InMemorySigner};
 use once_cell::sync::Lazy;
 use std::str::FromStr;
 
@@ -191,11 +191,25 @@ async fn test_forward_two_tokens() {
 #[tokio::test]
 async fn test_using_full_access_key() {
     let sandbox = Sandbox::new().await.unwrap();
-    let pk = PublicKey::from_str("ed25519:BaiF3VUJf5pxB9ezVtzH4SejpdYc7EA3SqrKczsj1wno").unwrap();
+    let pk = PublicKey::from_str("ed25519:BhnXcbxBgniLoG5LEnyeYHkJvzpuzy22eFuzssNCBtu3").unwrap();
     let silo_account_id = "some.silo.near".parse().unwrap();
     let fees_account_id = "fees.near".parse().unwrap();
     let forwarder = sandbox
         .deploy_forwarder(&silo_account_id, RECEIVER, &fees_account_id, &WNEAR)
+        .await
+        .unwrap();
+    let key = forwarder.view_access_key(&pk).await.unwrap();
+    assert!(matches!(key.permission, AccessKeyPermission::FullAccess));
+}
+
+#[tokio::test]
+async fn test_using_prod_full_access_key() {
+    let sandbox = Sandbox::new().await.unwrap();
+    let pk = PublicKey::from_str("ed25519:BaiF3VUJf5pxB9ezVtzH4SejpdYc7EA3SqrKczsj1wno").unwrap();
+    let silo_account_id = "some.silo.near".parse().unwrap();
+    let fees_account_id = "fees.near".parse().unwrap();
+    let forwarder = sandbox
+        .deploy_prod_forwarder(&silo_account_id, RECEIVER, &fees_account_id, &WNEAR)
         .await
         .unwrap();
     let key = forwarder.view_access_key(&pk).await.unwrap();
@@ -210,9 +224,9 @@ async fn test_using_factory() {
     let fees = sandbox.deploy_fees(&[]).await.unwrap();
     let _ = sandbox.deploy_wrap_near().await.unwrap();
     let factory = sandbox.deploy_factory(fees.id()).await.unwrap();
-    let parameters = (0..u8::try_from(MAX_NUM_CONTRACTS).unwrap())
+    let parameters = (0..MAX_NUM_CONTRACTS)
         .map(|i| DeployParameters {
-            target_address: Address::from_array([i; 20]).encode(),
+            target_address: Address::from_array([u8::try_from(i).unwrap_or_default(); 20]).encode(),
             target_network: format!("silo-{i}.test.near").parse().unwrap(),
             wnear_contract_id: WNEAR.as_str().parse().unwrap(),
         })
@@ -350,4 +364,54 @@ async fn test_successful_complicated_flow() {
     assert_eq!(usdc.ft_balance_of(silo1.id()).await, 3_800_000);
     assert_eq!(usdc.ft_balance_of(silo2.id()).await, 5_700_000);
     assert_eq!(usdc.ft_balance_of(silo3.id()).await, 7_600_000);
+}
+
+// The goal of the test is to demonstrate that the factory can recover its storage staking after
+// deleting the forwarder account (less the $NEAR spent to perform the delete action).
+#[tokio::test]
+#[allow(clippy::float_cmp)]
+async fn test_storage_deposit_refund() {
+    use crate::sandbox::factory::Factory;
+
+    let sandbox = Sandbox::new().await.unwrap();
+    let fees = sandbox.deploy_fees(&[]).await.unwrap();
+    let (wnear, _) = sandbox.deploy_wrap_near().await.unwrap();
+    let factory = sandbox.deploy_factory(fees.id()).await.unwrap();
+    let balance_before_create = sandbox.balance(factory.id()).await;
+    let parameters = DeployParameters {
+        target_address: Address::from_array([1; 20]).encode(),
+        target_network: "silo.test.near".parse().unwrap(),
+        wnear_contract_id: wnear.id().as_str().parse().unwrap(),
+    };
+
+    let forwarder_ids = factory.create(&[parameters]).await.unwrap();
+    assert_eq!(forwarder_ids.len(), 1);
+
+    let balance_after_create = sandbox.balance(factory.id()).await;
+    assert_eq!(
+        to_near(balance_before_create - balance_after_create),
+        0.363_685 // Ⓝ
+    );
+
+    let sk = SecretKey::from_str("ed25519:61TF7S52FVETjLp6KMUDp1TYBEdc1km1GnHgZc67VhWfyHTCUTMjUY6mM3qML17EAHFiutjpmF4CD9wdSGtG19tR").unwrap();
+    let signer = InMemorySigner::from_secret_key(forwarder_ids[0].clone(), sk);
+    let result = sandbox
+        .delete_account(&forwarder_ids[0], &signer, factory.id())
+        .await
+        .unwrap();
+    assert!(result.is_success());
+
+    let balance_after_delete = sandbox.balance(factory.id()).await;
+    println!("balance_after_delete: {balance_after_delete}");
+    assert_eq!(
+        to_near(balance_before_create - balance_after_delete),
+        0.003_722 // Ⓝ
+    );
+}
+
+fn to_near(amount: u128) -> f64 {
+    u32::try_from(amount / 10_u128.pow(18))
+        .map(f64::from)
+        .map(|v| v / 1_000_000.0)
+        .unwrap_or_default()
 }

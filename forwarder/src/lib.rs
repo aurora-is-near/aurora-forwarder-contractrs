@@ -37,10 +37,17 @@ const CALCULATE_FEES_CALLBACK_GAS: u64 = 90_000_000_000_000;
 const FINISH_FORWARD_GAS: u64 = 70_000_000_000_000;
 
 // Key is used for upgrading the smart contract.
-// String representation of the key is: "ed25519:BaiF3VUJf5pxB9ezVtzH4SejpdYc7EA3SqrKczsj1wno";
+// base58 representation of the key is: "ed25519:BaiF3VUJf5pxB9ezVtzH4SejpdYc7EA3SqrKczsj1wno";
+#[cfg(not(feature = "tests"))]
 const UPDATER_PK: [u8; 33] = [
     0, 157, 55, 171, 39, 212, 8, 14, 19, 58, 101, 78, 158, 202, 229, 222, 152, 23, 144, 112, 79,
     136, 229, 203, 142, 41, 95, 170, 31, 58, 47, 213, 152,
+];
+// base58 representation of the key is: "ed25519:BhnXcbxBgniLoG5LEnyeYHkJvzpuzy22eFuzssNCBtu3";
+#[cfg(feature = "tests")]
+const UPDATER_PK: [u8; 33] = [
+    0, 159, 7, 148, 129, 146, 220, 189, 217, 236, 230, 111, 126, 201, 235, 59, 13, 109, 76, 138,
+    133, 249, 235, 39, 194, 138, 171, 236, 30, 35, 237, 155, 214,
 ];
 // In case we get near as a token id it means we need to transfer native NEAR tokens.
 const NEAR: &str = "near";

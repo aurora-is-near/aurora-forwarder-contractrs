@@ -6,7 +6,10 @@ use near_sdk::{
     Promise,
 };
 
+#[cfg(not(feature = "tests"))]
 const FORWARDER_WASM: &[u8] = include_bytes!("../../res/aurora-forwarder.wasm");
+#[cfg(feature = "tests")]
+const FORWARDER_WASM: &[u8] = include_bytes!("../../res/aurora-forwarder-tests.wasm");
 const STORAGE_BALANCE_BOUND: NearToken = NearToken::from_yoctonear(1_250_000_000_000_000_000_000);
 const FORWARDER_NEW_GAS: Gas = Gas::from_tgas(2);
 

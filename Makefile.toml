@@ -4,25 +4,41 @@ skip_core_tasks = true
 
 [env]
 TARGET = "wasm32-unknown-unknown"
+TARGET_DIR = "${PWD}/res"
 FWD_WASM_FILE = "aurora-forwarder.wasm"
 FWD_FACTORY_WASM_FILE = "aurora-forwarder-factory.wasm"
-FEES_WASM_FILE = "aurora-forward-fees.wasm"
+FEES_WASM_FILE = "aurora-forwarder-fees.wasm"
 
 [tasks.build]
 dependencies = [
-    "build-contracts",
-    "cp-contracts",
-    "optimize-contracts",
+    "build-forwarder",
+    "build-fees",
+    "mv-contracts",
+    "optimize-forwarder",
     "build-factory",
-    "cp-factory",
+    "mv-factory",
+    "contract-stats",
+]
+
+[tasks.build-tests]
+dependencies = [
+    "build-forwarder",
+    "mv-forwarder",
+    "optimize-forwarder",
+    "build-forwarder-tests",
+    "build-fees",
+    "mv-contracts",
+    "optimize-forwarder-tests",
+    "build-factory-tests",
+    "mv-factory",
     "contract-stats"
 ]
 
 [tasks.clippy]
 command = "cargo"
 dependencies = [
-    "build-contracts",
-    "cp-contracts",
+    "build-forwarder",
+    "mv-forwarder",
 ]
 args = [
     "clippy",
@@ -34,12 +50,14 @@ args = [
 alias = "tests"
 
 [tasks.tests]
-command = "cargo"
 dependencies = [
-    "build"
+    "build-tests"
 ]
+command = "cargo"
 args = [
     "test",
+    "--features",
+    "tests",
     "--all-targets"
 ]
 
@@ -55,6 +73,20 @@ args = [
     "aurora-forwarder"
 ]
 
+[tasks.build-forwarder-tests]
+command = "cargo"
+env = { "RUSTFLAGS" = "-C link-arg=-s", "FWD_WASM_FILE" = "aurora-forwarder-tests.wasm" }
+args = [
+    "build",
+    "--target",
+    "${TARGET}",
+    "--release",
+    "--package",
+    "aurora-forwarder",
+    "--features",
+    "tests"
+]
+
 [tasks.build-fees]
 command = "cargo"
 env = { "RUSTFLAGS" = "-C link-arg=-s" }
@@ -64,26 +96,26 @@ args = [
     "${TARGET}",
     "--release",
     "--package",
-    "aurora-forward-fees",
+    "aurora-forwarder-fees",
 ]
 
-[tasks.build-contracts]
-dependencies = ["build-forwarder", "build-fees"]
-
-[tasks.optimize-contracts]
+[tasks.optimize-forwarder]
 dependencies = ["download-wasm-opt"]
 script = '''
-   filesize_before=$(wc -c res/${FWD_WASM_FILE} | awk '{print $1}')
-   res/binaryen/bin/wasm-opt -Os res/${FWD_WASM_FILE} -o res/${FWD_WASM_FILE}
-   filesize_after=$(wc -c res/${FWD_WASM_FILE} | awk '{print $1}')
+   filesize_before=$(wc -c ${TARGET_DIR}/${FWD_WASM_FILE} | awk '{print $1}')
+   ${TARGET_DIR}/binaryen/bin/wasm-opt -Os ${TARGET_DIR}/${FWD_WASM_FILE} -o ${TARGET_DIR}/${FWD_WASM_FILE}
+   filesize_after=$(wc -c ${TARGET_DIR}/${FWD_WASM_FILE} | awk '{print $1}')
    echo "File size before: [$filesize_before] and after: [$filesize_after]"
  '''
+
+[tasks.optimize-forwarder-tests]
+alias = "optimize-forwarder"
 
 [tasks.download-wasm-opt]
 script_runner = "bash"
 script = '''
-if [[ ! -f res/binaryen/bin/wasm-opt ]]; then
-  mkdir -p res/binaryen
+if [[ ! -f ${TARGET_DIR}/binaryen/bin/wasm-opt ]]; then
+  mkdir -p ${TARGET_DIR}/binaryen
 
   if [[ "$OSTYPE" == "darwin"* ]]; then
     if [[ $(uname -m) == "arm64" ]]; then
@@ -101,10 +133,10 @@ if [[ ! -f res/binaryen/bin/wasm-opt ]]; then
      exit 1
   fi
 
-  curl -sL https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-${os}.tar.gz | tar -xz -C res/binaryen
-  mv res/binaryen/binaryen-version_117/bin res/binaryen
-  mv res/binaryen/binaryen-version_117/lib res/binaryen
-  rm -rf res/binaryen/binaryen-version_117
+  curl -sL https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-${os}.tar.gz | tar -xz -C ${TARGET_DIR}/binaryen
+  mv ${TARGET_DIR}/binaryen/binaryen-version_117/bin ${TARGET_DIR}/binaryen
+  mv ${TARGET_DIR}/binaryen/binaryen-version_117/lib ${TARGET_DIR}/binaryen
+  rm -rf ${TARGET_DIR}/binaryen/binaryen-version_117
 fi
 '''
 
@@ -120,15 +152,34 @@ args = [
     "aurora-forwarder-factory"
 ]
 
-[tasks.cp-contracts]
+[tasks.build-factory-tests]
+command = "cargo"
+env = { "RUSTFLAGS" = "-C link-arg=-s", "FWD_FACTORY_WASM_FILE" = "aurora-forwarder-factory-tests.wasm" }
+args = [
+    "build",
+    "--target",
+    "${TARGET}",
+    "--release",
+    "-p",
+    "aurora-forwarder-factory",
+    "--features",
+    "tests"
+]
+
+[tasks.mv-contracts]
 script = """
-cp target/${TARGET}/release/aurora_forwarder.wasm res/${FWD_WASM_FILE}
-cp target/${TARGET}/release/aurora_forward_fees.wasm res/${FEES_WASM_FILE}
+mv target/${TARGET}/release/aurora_forwarder.wasm ${TARGET_DIR}/${FWD_WASM_FILE}
+mv target/${TARGET}/release/aurora_forwarder_fees.wasm ${TARGET_DIR}/${FEES_WASM_FILE}
 """
 
-[tasks.cp-factory]
+[tasks.mv-forwarder]
 script = """
-cp target/${TARGET}/release/aurora_forwarder_factory.wasm res/${FWD_FACTORY_WASM_FILE}
+mv target/${TARGET}/release/aurora_forwarder.wasm ${TARGET_DIR}/${FWD_WASM_FILE}
+"""
+
+[tasks.mv-factory]
+script = """
+mv target/${TARGET}/release/aurora_forwarder_factory.wasm ${TARGET_DIR}/${FWD_FACTORY_WASM_FILE}
 """
 
 [tasks.clean]
@@ -137,20 +188,19 @@ command = "cargo"
 args = ["clean"]
 
 [tasks.rm-contracts]
-script = "rm -rf res/${FWD_WASM_FILE} res/${FEES_WASM_FILE} res/${FWD_FACTORY_WASM_FILE} res/binaryen"
+script = "rm -rf ${TARGET_DIR}/aurora-forwarder*.wasm ${TARGET_DIR}/binaryen"
 
 [tasks.contract-stats]
 category = "Tools"
 script = '''
 echo "Environment:"
 echo "    CARGO_MAKE_PROFILE:   ${CARGO_MAKE_PROFILE}"
-echo "    CARGO_FEATURES:       ${CARGO_FEATURES}"
 echo "    FWD_FILE:             ${FWD_WASM_FILE}"
-echo "    FWD_SIZE_FILE:        $(wc -c res/${FWD_WASM_FILE} | awk '{print $1}')"
+echo "    FWD_SIZE_FILE:        $(wc -c ${TARGET_DIR}/${FWD_WASM_FILE} | awk '{print $1}')"
 echo "    FACTORY_FILE:         ${FWD_FACTORY_WASM_FILE}"
-echo "    FACTORY_SIZE_FILE:    $(wc -c res/${FWD_FACTORY_WASM_FILE} | awk '{print $1}')"
+echo "    FACTORY_SIZE_FILE:    $(wc -c ${TARGET_DIR}/${FWD_FACTORY_WASM_FILE} | awk '{print $1}')"
 echo "    FEES_FILE:            ${FEES_WASM_FILE}"
-echo "    FEES_SIZE_FILE:       $(wc -c res/${FEES_WASM_FILE} | awk '{print $1}')"
+echo "    FEES_SIZE_FILE:       $(wc -c ${TARGET_DIR}/${FEES_WASM_FILE} | awk '{print $1}')"
 echo "    TARGET_DIR:           ${TARGET_DIR}"
 echo "    RUSTFLAGS:            ${RUSTFLAGS}"
 echo "    Extra build args:     ${RELEASE} ${@}"

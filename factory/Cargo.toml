@@ -21,3 +21,6 @@ pedantic = "deny"
 aurora-engine-types.workspace = true
 forwarder-utils = { path = "../utils" }
 near-sdk.workspace = true
+
+[features]
+tests = []

@@ -260,14 +260,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aurora-forward-fees"
-version = "0.1.0"
-dependencies = [
- "aurora-engine-types",
- "near-sdk",
-]
-
-[[package]]
 name = "aurora-forwarder"
 version = "0.1.0"
 dependencies = [
@@ -282,6 +274,14 @@ version = "0.1.0"
 dependencies = [
  "aurora-engine-types",
  "forwarder-utils",
+ "near-sdk",
+]
+
+[[package]]
+name = "aurora-forwarder-fees"
+version = "0.1.0"
+dependencies = [
+ "aurora-engine-types",
  "near-sdk",
 ]
 

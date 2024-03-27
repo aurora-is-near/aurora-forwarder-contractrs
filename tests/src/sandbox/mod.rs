@@ -1,8 +1,9 @@
 use aurora_engine_types::types::Address;
 use forwarder_utils::forwarder_prefix;
 use near_sdk::serde_json::json;
+use near_workspaces::result::ExecutionFinalResult;
 use near_workspaces::types::NearToken;
-use near_workspaces::{Account, AccountId, Contract, Worker};
+use near_workspaces::{Account, AccountId, Contract, InMemorySigner, Worker};
 
 pub mod aurora;
 pub mod erc20;
@@ -13,8 +14,9 @@ pub mod fungible_token;
 const AURORA_WASM_PATH: &str = "../res/aurora-mainnet.wasm";
 const FT_WASM_PATH: &str = "../res/fungible-token.wasm";
 const FORWARDER_WASM_PATH: &str = "../res/aurora-forwarder.wasm";
-const FEES_WASM_PATH: &str = "../res/aurora-forward-fees.wasm";
-const FACTORY_WASM_PATH: &str = "../res/aurora-forwarder-factory.wasm";
+const FORWARDER_TESTS_WASM_PATH: &str = "../res/aurora-forwarder-tests.wasm";
+const FEES_WASM_PATH: &str = "../res/aurora-forwarder-fees.wasm";
+const FACTORY_WASM_PATH: &str = "../res/aurora-forwarder-factory-tests.wasm";
 const WRAP_WASM_PATH: &str = "../res/w_near.wasm";
 const INIT_BALANCE_NEAR: NearToken = NearToken::from_near(50);
 const FORWARDER_MIN_BALANCE: NearToken = NearToken::from_near(2);
@@ -56,6 +58,18 @@ impl Sandbox {
             .unwrap()
             .balance
             .as_yoctonear()
+    }
+
+    pub async fn delete_account(
+        &self,
+        account_id: &AccountId,
+        signer: &InMemorySigner,
+        beneficiary_id: &AccountId,
+    ) -> anyhow::Result<ExecutionFinalResult> {
+        self.worker
+            .delete_account(account_id, signer, beneficiary_id)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn deploy_ft(
@@ -148,13 +162,48 @@ impl Sandbox {
         fees_account_id: &AccountId,
         wnear_contract_id: &AccountId,
     ) -> anyhow::Result<Contract> {
+        self.deploy_forwarder_with_wasm(
+            target_network,
+            address,
+            fees_account_id,
+            wnear_contract_id,
+            FORWARDER_TESTS_WASM_PATH,
+        )
+        .await
+    }
+
+    pub async fn deploy_prod_forwarder(
+        &self,
+        target_network: &AccountId,
+        address: &str,
+        fees_account_id: &AccountId,
+        wnear_contract_id: &AccountId,
+    ) -> anyhow::Result<Contract> {
+        self.deploy_forwarder_with_wasm(
+            target_network,
+            address,
+            fees_account_id,
+            wnear_contract_id,
+            FORWARDER_WASM_PATH,
+        )
+        .await
+    }
+
+    async fn deploy_forwarder_with_wasm(
+        &self,
+        target_network: &AccountId,
+        address: &str,
+        fees_account_id: &AccountId,
+        wnear_contract_id: &AccountId,
+        wasm: &str,
+    ) -> anyhow::Result<Contract> {
         let name = forwarder_prefix(
             address,
             &target_network.as_str().parse().unwrap(),
             &fees_account_id.as_str().parse().unwrap(),
         );
         let fwd_account = self.create_subaccount(&name, FORWARDER_MIN_BALANCE).await?;
-        let result = fwd_account.deploy(&code(FORWARDER_WASM_PATH)).await?;
+        let result = fwd_account.deploy(&code(wasm)).await?;
         assert!(result.is_success());
         let contract = result.result;
         let address = Address::decode(address.trim_start_matches("0x")).unwrap();
